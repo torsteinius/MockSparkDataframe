@@ -2,6 +2,9 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Union
 
+"""
+Made to make debugging ETL PySpark Dataframes easier, as some frameworks like Synapse Analytics have restrictive debug environments. 
+"""
 
 class MockSparkDF:
     def __init__(self, data: Union[pd.DataFrame, List[Dict[str, Any]], Dict[str, List[Any]], List[tuple]]):
