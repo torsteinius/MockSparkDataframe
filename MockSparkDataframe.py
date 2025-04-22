@@ -1,15 +1,14 @@
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 
 
 class MockSparkDF:
-    def __init__(self, data: Any):
-        # Accept pandas DataFrame, list of dicts/tuples, or dict of lists
+    def __init__(self, data: Union[pd.DataFrame, List[Dict[str, Any]], Dict[str, List[Any]], List[tuple]]):
+        # Accept pandas DataFrame or raw Python data structures
         if isinstance(data, pd.DataFrame):
             self.pdf = data.copy()
         else:
-            # Try to build a pandas DataFrame from raw data
             try:
                 self.pdf = pd.DataFrame(data)
             except Exception as e:
@@ -33,7 +32,29 @@ class MockSparkDF:
         self.ops.append(lambda df: df[list(cols)])
         return self
 
-    def collect(self):
+    def join(
+        self,
+        other: 'MockSparkDF',
+        on: Union[str, List[str], None] = None,
+        how: str = 'inner',
+    ) -> 'MockSparkDF':
+        """Mimic Spark join by merging underlying pandas DataFrames."""
+        def op(df):
+            other_df = other.pdf.copy()
+            return df.merge(other_df, on=on, how=how)
+        self.ops.append(op)
+        return self
+
+    def merge(
+        self,
+        other: 'MockSparkDF',
+        on: Union[str, List[str], None] = None,
+        how: str = 'inner',
+    ) -> 'MockSparkDF':
+        """Alias to join(), for compatibility."""
+        return self.join(other, on=on, how=how)
+
+    def collect(self) -> List[Dict[str, Any]]:
         df = self.pdf.copy()
         for op in self.ops:
             df = op(df)
@@ -46,25 +67,38 @@ class MockSparkSession:
     def __init__(self):
         pass
 
-    def createDataFrame(self, data: Any) -> MockSparkDF:
+    def createDataFrame(self, data: Union[pd.DataFrame, List[Dict[str, Any]], Dict[str, List[Any]], List[tuple]]) -> MockSparkDF:
         return MockSparkDF(data)
 
 
 if __name__ == "__main__":
-    # Example usage without needing pandas upfront
     spark = MockSparkSession()
-    raw_data = [
-        {"id": 1, "name": "Alice", "age": 25, "created_at": datetime.now()},
-        {"id": 2, "name": "Bob",   "age": 30, "created_at": datetime.now() - timedelta(days=1)},
-        {"id": 3, "name": "Charlie","age": 35, "created_at": datetime.now() - timedelta(days=2)},
-    ]
 
-    df = (
-        spark.createDataFrame(raw_data)
-             .filter(lambda df: df["age"] > 28)
-             .withColumn("age_plus_one", lambda df: df["age"] + 1)
-             .select("id", "name", "age_plus_one")
+    # Create two mock dataframes
+    df1 = spark.createDataFrame([
+        {"id": 1, "value": 10},
+        {"id": 2, "value": 20},
+    ])
+    df2 = spark.createDataFrame([
+        {"id": 1, "extra": "A"},
+        {"id": 2, "extra": "B"},
+    ])
+
+    # Perform join and merge
+    result_join = (
+        df1.join(df2, on="id", how="inner")
+           .select("id", "value", "extra")
+           .collect()
     )
+    print("Join result:", result_join)
 
-    result = df.collect()
-    print(result)  # [{'id': 2, 'name': 'Bob', 'age_plus_one': 31}, {'id': 3, 'name': 'Charlie', 'age_plus_one': 36}]
+    # Merge is alias to join
+    result_merge = (
+        spark.createDataFrame([{"id": 3, "value": 30}])
+             .merge(
+                 spark.createDataFrame([{"id": 3, "extra": "C"}]),
+                 on="id"
+             )
+             .collect()
+    )
+    print("Merge result:", result_merge)
